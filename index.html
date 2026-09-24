@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💎 钻石手分红登记</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0a12;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 480px; margin: 0 auto; }
+        .header { text-align: center; padding: 30px 0 20px; }
+        .header h1 { font-size: 24px; color: #00d4aa; margin-bottom: 6px; }
+        .header p { font-size: 13px; color: #888; }
+        .card {
+            background: #15151f;
+            border: 1px solid #2a2a3a;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #1e1e2a;
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { font-size: 13px; color: #888; }
+        .stat-value { font-size: 14px; font-weight: 600; }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            color: #fff;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,170,0.3); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .btn-secondary {
+            background: #2a2a3a;
+            color: #e0e0e0;
+        }
+        .btn-secondary:hover { background: #33334a; }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-ok { background: rgba(0,212,170,0.15); color: #00d4aa; }
+        .status-warn { background: rgba(255,193,7,0.15); color: #ffc107; }
+        .status-bad { background: rgba(255,77,79,0.15); color: #ff4d4f; }
+        .status-gray { background: rgba(255,255,255,0.08); color: #888; }
+        .info-box {
+            background: rgba(0,212,170,0.06);
+            border: 1px solid rgba(0,212,170,0.15);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #aaa;
+        }
+        .info-box b { color: #00d4aa; }
+        .error-msg {
+            background: rgba(255,77,79,0.1);
+            border: 1px solid rgba(255,77,79,0.2);
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #ff4d4f;
+            margin-bottom: 12px;
+            display: none;
+        }
+        .loading { text-align: center; padding: 40px; color: #555; }
+        .hidden { display: none !important; }
+        .tx-link {
+            display: block;
+            text-align: center;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #00d4aa;
+            text-decoration: none;
+        }
+        a { color: #00d4aa; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>💎 钻石手分红登记</h1>
+        <p>持有代币不卖出，自动获得 BNB 分红</p>
+    </div>
+
+    <!-- 配置：部署后修改为你的合约地址 -->
+    <script>
+        const DIVIDEND_CONTRACT = "0x0000000000000000000000000000000000000000"; // 分红合约地址
+        const BSC_CHAIN_ID = 0x38;
+        const BSCAN_BASE = "https://bscscan.com";
+    </script>
+
+    <!-- 未连接钱包 -->
+    <div id="view-connect" class="card">
+        <div class="info-box">
+            <b>如何参与分红？</b><br>
+            1. 连接钱包<br>
+            2. 确保持有代币<br>
+            3. 点击下方按钮登记（仅需一次，花费少量 gas）<br>
+            4. 之后每次有人向分红合约转入 BNB，你自动按比例获得分红
+        </div>
+        <button class="btn btn-primary" onclick="connectWallet()">连接钱包</button>
+    </div>
+
+    <!-- 网络错误 -->
+    <div id="view-network" class="card hidden">
+        <p style="text-align:center; margin-bottom:16px; color:#ffc107;">当前网络不是 BSC，请切换</p>
+        <button class="btn btn-primary" onclick="switchToBSC()">切换到 BSC</button>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="view-main" class="hidden">
+        <div id="errorBox" class="error-msg"></div>
+
+        <!-- 钱包信息 -->
+        <div class="card">
+            <div class="stat-row">
+                <span class="stat-label">钱包</span>
+                <span class="stat-value" id="walletAddr">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">代币余额</span>
+                <span class="stat-value" id="tokenBal">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">登记状态</span>
+                <span id="regStatus">-</span>
+            </div>
+        </div>
+
+        <!-- 分红信息 -->
+        <div class="card">
+            <div class="stat-row">
+                <span class="stat-label">待领分红 (BNB)</span>
+                <span class="stat-value" id="pendingDiv" style="color:#00d4aa;">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">已领累计 (BNB)</span>
+                <span class="stat-value" id="totalDiv">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">分红份额</span>
+                <span class="stat-value" id="shareBal">-</span>
+            </div>
+        </div>
+
+        <!-- 全局统计 -->
+        <div class="card">
+            <div class="stat-row">
+                <span class="stat-label">总参与份额</span>
+                <span class="stat-value" id="totalShares">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">参与人数</span>
+                <span class="stat-value" id="holderCount">-</span>
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <button id="btnRegister" class="btn btn-primary" onclick="registerForDividend()">
+            登记分红
+        </button>
+        <button class="btn btn-secondary" style="margin-top:8px;" onclick="refreshStatus()">
+            刷新状态
+        </button>
+        <a class="tx-link" id="contractLink" href="#" target="_blank">查看合约</a>
+    </div>
+
+    <!-- 加载中 -->
+    <div id="view-loading" class="card hidden">
+        <div class="loading">加载中...</div>
+    </div>
+</div>
+
+<script>
+// 合约 ABI（仅需要的函数）
+const DIVIDEND_ABI = [
+    "function syncBalance(address account) external",
+    "function withdrawableDividendOf(address account) view returns (uint256)",
+    "function withdrawnDividends(address) view returns (uint256)",
+    "function isSeller(address) view returns (bool)",
+    "function totalShares() view returns (uint256)",
+    "function holderCount() view returns (uint256)",
+    "function token() view returns (address)",
+    "function maxHoldingForDividend() view returns (uint256)",
+    "function MIN_PAYOUT() view returns (uint256)"
+];
+const ERC20_ABI = [
+    "function balanceOf(address) view returns (uint256)",
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)"
+];
+
+let provider, signer, dividendContract, tokenContract, tokenDecimals, tokenSymbol;
+let userAddress;
+
+async function connectWallet() {
+    if (typeof window.ethereum === "undefined") {
+        showError("未检测到 MetaMask，请先安装钱包插件");
+        return;
+    }
+    try {
+        provider = new ethers.BrowserProvider(window.ethereum);
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        userAddress = accounts[0];
+
+        // 检查网络
+        const network = await provider.getNetwork();
+        if (Number(network.chainId) !== BSC_CHAIN_ID) {
+            showView("view-network");
+            return;
+        }
+
+        signer = await provider.getSigner();
+        dividendContract = new ethers.Contract(DIVIDEND_CONTRACT, DIVIDEND_ABI, signer);
+
+        // 读取代币地址
+        const tokenAddr = await dividendContract.token();
+        if (tokenAddr === "0x0000000000000000000000000000000000000000") {
+            showError("分红合约尚未设置代币地址");
+            return;
+        }
+        tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
+        tokenDecimals = await tokenContract.decimals();
+        tokenSymbol = await tokenContract.symbol();
+
+        // 设置合约链接
+        document.getElementById("contractLink").href = BSCAN_BASE + "/address/" + DIVIDEND_CONTRACT + "#code";
+
+        // 监听账户切换
+        window.ethereum.on("accountsChanged", () => window.location.reload());
+        window.ethereum.on("chainChanged", () => window.location.reload());
+
+        await refreshStatus();
+        showView("view-main");
+    } catch (e) {
+        showError("连接失败: " + e.message);
+    }
+}
+
+async function switchToBSC() {
+    try {
+        await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x38" }]
+        });
+    } catch (e) {
+        if (e.code === 4902) {
+            await window.ethereum.request({
+                method: "wallet_addEthereumChain",
+                params: [{
+                    chainId: "0x38",
+                    chainName: "BNB Smart Chain",
+                    nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+                    rpcUrls: ["https://bsc-dataseed.binance.org/"],
+                    blockExplorerUrls: ["https://bscscan.com"]
+                }]
+            });
+        }
+    }
+    window.location.reload();
+}
+
+async function refreshStatus() {
+    if (!dividendContract) return;
+    const btn = document.getElementById("btnRegister");
+    btn.disabled = true;
+
+    try {
+        const [bal, pending, withdrawn, isSell, shares, totalShares, holderCnt] = await Promise.all([
+            tokenContract.balanceOf(userAddress),
+            dividendContract.withdrawableDividendOf(userAddress),
+            dividendContract.withdrawnDividends(userAddress),
+            dividendContract.isSeller(userAddress),
+            dividendContract.maxHoldingForDividend(), // 临时占位，下面用别的方式获取份额
+            dividendContract.totalShares(),
+            dividendContract.holderCount()
+        ]);
+
+        // 代币余额
+        document.getElementById("tokenBal").textContent =
+            parseFloat(ethers.formatUnits(bal, tokenDecimals)).toLocaleString() + " " + tokenSymbol;
+
+        // 分红
+        document.getElementById("pendingDiv").textContent =
+            parseFloat(ethers.formatEther(pending)).toFixed(6);
+        document.getElementById("totalDiv").textContent =
+            parseFloat(ethers.formatEther(withdrawn)).toFixed(6);
+
+        // 钱包地址
+        document.getElementById("walletAddr").textContent =
+            userAddress.slice(0, 6) + "..." + userAddress.slice(-4);
+
+        // 全局统计
+        document.getElementById("totalShares").textContent =
+            parseFloat(ethers.formatUnits(totalShares, tokenDecimals)).toLocaleString() + " " + tokenSymbol;
+        document.getElementById("holderCount").textContent = holderCnt.toString();
+
+        // 登记状态
+        const badge = document.getElementById("regStatus");
+        if (isSell) {
+            badge.innerHTML = '<span class="status-badge status-bad">已失去资格</span>';
+            btn.textContent = "已失去分红资格";
+            btn.disabled = true;
+        } else if (bal > 0n) {
+            // 有代币，检查是否已登记
+            // 份额为 0 且不在 holders 列表 = 未登记
+            // 简单判断：如果有代币但 pending 和 withdrawn 都为 0，可能未登记
+            if (pending > 0n || withdrawn > 0n) {
+                badge.innerHTML = '<span class="status-badge status-ok">已登记</span>';
+                btn.textContent = "刷新份额";
+                btn.disabled = false;
+            } else {
+                badge.innerHTML = '<span class="status-badge status-warn">未登记</span>';
+                btn.textContent = "登记分红";
+                btn.disabled = false;
+            }
+        } else {
+            badge.innerHTML = '<span class="status-badge status-gray">无代币</span>';
+            btn.textContent = "请先购买代币";
+            btn.disabled = true;
+        }
+
+        hideError();
+    } catch (e) {
+        showError("刷新失败: " + e.message);
+    }
+}
+
+async function registerForDividend() {
+    const btn = document.getElementById("btnRegister");
+    btn.disabled = true;
+    btn.textContent = "交易处理中...";
+
+    try {
+        const tx = await dividendContract.syncBalance(userAddress);
+        btn.textContent = "等待确认...";
+
+        const receipt = await tx.wait();
+        btn.textContent = "登记成功!";
+
+        // 交易链接
+        const link = document.createElement("a");
+        link.className = "tx-link";
+        link.href = BSCAN_BASE + "/tx/" + receipt.hash;
+        link.target = "_blank";
+        link.textContent = "查看交易: " + receipt.hash.slice(0, 10) + "...";
+        btn.parentNode.appendChild(link);
+
+        await refreshStatus();
+    } catch (e) {
+        showError("交易失败: " + (e.reason || e.message));
+        btn.disabled = false;
+        btn.textContent = "登记分红";
+    }
+}
+
+function showView(id) {
+    ["view-connect", "view-network", "view-main", "view-loading"].forEach(v => {
+        document.getElementById(v).classList.add("hidden");
+    });
+    document.getElementById(id).classList.remove("hidden");
+}
+
+function showError(msg) {
+    const box = document.getElementById("errorBox");
+    box.textContent = msg;
+    box.style.display = "block";
+}
+
+function hideError() {
+    document.getElementById("errorBox").style.display = "none";
+}
+
+// 自动检查 MetaMask
+if (typeof window.ethereum !== "undefined") {
+    // 检查是否已经连接过
+    window.ethereum.request({ method: "eth_accounts" }).then(accounts => {
+        if (accounts.length > 0) {
+            connectWallet();
+        }
+    });
+}
+</script>
+</body>
+</html>
