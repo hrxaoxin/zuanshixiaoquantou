@@ -115,6 +115,9 @@
         const BSCAN_BASE = "https://bscscan.com";
     </script>
 
+    <!-- 全局错误提示 -->
+    <div id="errorBox" class="error-msg"></div>
+
     <!-- 未连接钱包 -->
     <div id="view-connect" class="card">
         <div class="info-box">
@@ -135,8 +138,6 @@
 
     <!-- 主界面 -->
     <div id="view-main" class="hidden">
-        <div id="errorBox" class="error-msg"></div>
-
         <!-- 钱包信息 -->
         <div class="card">
             <div class="stat-row">
@@ -222,6 +223,10 @@ let userAddress;
 async function connectWallet() {
     if (typeof window.ethereum === "undefined") {
         showError("未检测到 MetaMask，请先安装钱包插件");
+        return;
+    }
+    if (DIVIDEND_CONTRACT === "0x0000000000000000000000000000000000000000") {
+        showError("尚未配置分红合约地址，请先在 index.html 中设置 DIVIDEND_CONTRACT");
         return;
     }
     try {
